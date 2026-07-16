@@ -38,7 +38,6 @@ from .translate import (
     InstrArgs,
     Literal,
     NodeState,
-    StoreStmt,
     UnaryOp,
     as_s16,
     as_type,
@@ -233,7 +232,14 @@ class Sh2Arch(Arch):
             else:
                 assert isinstance(args[0], AsmLiteral)
                 eval_fn = lambda s, a: s.set_reg(a.reg_ref(1), Literal(a.imm_value(0)))
-        elif mnemonic in ("mov.l", "mov.w"):
+        elif mnemonic == "mova":
+            assert (
+                len(args) == 2
+                and isinstance(args[0], AsmGlobalSymbol)
+                and isinstance(args[1], Register)
+            )
+            outputs = [args[1]]
+        elif mnemonic in ("mov.b", "mov.l", "mov.w"):
             assert len(args) == 2
             if isinstance(args[0], Register):
                 assert isinstance(args[1], AsmAddressMode)
@@ -242,16 +248,45 @@ class Sh2Arch(Arch):
                 if args[1].writeback is None:
 
                     def eval_fn(s: NodeState, a: InstrArgs) -> None:
-                        store = make_store(a, Type.reg32(likely_float=False))
+                        store_type = {
+                            "mov.b": Type.s8(),
+                            "mov.w": Type.s16(),
+                            "mov.l": Type.reg32(likely_float=False),
+                        }[mnemonic]
+                        store = make_store(a, store_type)
                         if store is not None:
                             s.store_memory(store, a.reg_ref(0))
 
                 elif (
-                    args[1].writeback == Writeback.PRE and args[0] not in cls.saved_regs
+                    args[1].writeback == Writeback.PRE
+                    and args[1].base == cls.stack_pointer_reg
+                    and args[0] not in cls.saved_regs
                 ):
 
                     def eval_fn(s: NodeState, a: InstrArgs) -> None:
                         s.push_subroutine_arg(a.reg(0))
+
+                elif (
+                    args[1].writeback == Writeback.PRE
+                    and args[1].base != cls.stack_pointer_reg
+                ):
+                    writeback_base = args[1].base
+                    outputs = [writeback_base]
+
+                    def eval_fn(s: NodeState, a: InstrArgs) -> None:
+                        size = {"mov.b": 1, "mov.w": 2, "mov.l": 4}[mnemonic]
+                        s.set_reg(
+                            writeback_base,
+                            BinaryOp.intptr(a.regs[writeback_base], "-", Literal(size)),
+                        )
+                        store_type = {
+                            "mov.b": Type.s8(),
+                            "mov.w": Type.s16(),
+                            "mov.l": Type.reg32(likely_float=False),
+                        }[mnemonic]
+                        store = make_store(a, store_type)
+                        if store is not None:
+                            s.store_memory(store, a.reg_ref(0))
 
                 else:
                     # otherwise we have a writeback
@@ -263,15 +298,37 @@ class Sh2Arch(Arch):
                     inputs = [args[0].base]
                 outputs = [args[1]]
                 is_load = True
-                if not (
+                if (
                     isinstance(args[0], AsmAddressMode)
                     and args[0].writeback is not None
+                    and args[0].base != cls.stack_pointer_reg
                 ):
-                    load_type = (
-                        Type.s16()
-                        if mnemonic == "mov.w"
-                        else Type.reg32(likely_float=False)
-                    )
+                    writeback_base = args[0].base
+                    outputs.append(writeback_base)
+
+                    def eval_fn(s: NodeState, a: InstrArgs) -> None:
+                        load_type = {
+                            "mov.b": Type.s8(),
+                            "mov.w": Type.s16(),
+                            "mov.l": Type.reg32(likely_float=False),
+                        }[mnemonic]
+                        value = handle_load(
+                            replace(a, raw_args=[a.raw_arg(1), a.raw_arg(0)]),
+                            type=load_type,
+                        )
+                        s.set_reg(a.reg_ref(1), value)
+                        size = {"mov.b": 1, "mov.w": 2, "mov.l": 4}[mnemonic]
+                        s.set_reg(
+                            writeback_base,
+                            BinaryOp.intptr(a.regs[writeback_base], "+", Literal(size)),
+                        )
+
+                else:
+                    load_type = {
+                        "mov.b": Type.s8(),
+                        "mov.w": Type.s16(),
+                        "mov.l": Type.reg32(likely_float=False),
+                    }[mnemonic]
                     eval_fn = lambda s, a: s.set_reg(
                         a.reg_ref(1),
                         handle_load(
