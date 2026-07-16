@@ -25,6 +25,7 @@ from .translate import (
     Arch,
     ArgLoc,
     BinaryOp,
+    CarryBit,
     Cast,
     Expression,
     InstrMap,
@@ -33,7 +34,14 @@ from .translate import (
     NodeState,
 )
 
-from .evaluate import condition_from_expr, handle_add, handle_sub
+from .evaluate import (
+    condition_from_expr,
+    handle_add,
+    handle_addi,
+    handle_load,
+    handle_sub,
+    make_store,
+)
 
 from .types import FunctionSignature, Type
 
@@ -123,33 +131,77 @@ class Sh2Arch(Arch):
             else:
                 assert isinstance(args[0], AsmLiteral)
                 eval_fn = lambda s, a: s.set_reg(a.reg_ref(1), Literal(a.imm_value(0)))
-        elif mnemonic == "mov.l":
+        elif mnemonic in ("mov.l", "mov.w"):
             assert len(args) == 2
             if isinstance(args[0], Register):
                 assert isinstance(args[1], AsmAddressMode)
-                assert args[1].base == cls.stack_pointer_reg
-                assert args[1].writeback == Writeback.PRE
                 inputs = [args[0], args[1].base]
                 is_store = True
+                if args[1].writeback is None:
+                    eval_fn = lambda s, a: make_store(
+                        a, Type.reg32(likely_float=False)
+                    )
             else:
-                assert isinstance(args[0], AsmAddressMode)
                 assert isinstance(args[1], Register)
-                assert args[0].base == cls.stack_pointer_reg
-                assert args[0].writeback == Writeback.POST
-                inputs = [args[0].base]
+                if isinstance(args[0], AsmAddressMode):
+                    inputs = [args[0].base]
                 outputs = [args[1]]
                 is_load = True
+                if not (
+                    isinstance(args[0], AsmAddressMode)
+                    and args[0].writeback is not None
+                ):
+                    load_type = (
+                        Type.s16()
+                        if mnemonic == "mov.w"
+                        else Type.reg32(likely_float=False)
+                    )
+                    eval_fn = lambda s, a: s.set_reg(
+                        a.reg_ref(1),
+                        handle_load(
+                            replace(a, raw_args=[a.raw_arg(1), a.raw_arg(0)]),
+                            type=load_type,
+                        ),
+                    )
         elif mnemonic in cls.instrs_arithmetic:
+            assert len(args) == 2 and isinstance(args[1], Register)
+            inputs = [args[1]]
+            if isinstance(args[0], Register):
+                inputs.insert(0, args[0])
+            outputs = [args[1]]
+            eval_fn = lambda s, a: s.set_reg(
+                a.reg_ref(1), cls.instrs_arithmetic[mnemonic](a)
+            )
+        elif mnemonic == "clrt":
+            assert len(args) == 0
+            outputs = [Register("condition_bit")]
+            eval_fn = lambda s, a: s.set_reg(Register("condition_bit"), Literal(0))
+        elif mnemonic == "shll":
+            assert len(args) == 1 and isinstance(args[0], Register)
+            inputs = [args[0]]
+            outputs = [args[0], Register("condition_bit")]
+
+            def eval_fn(s: NodeState, a: InstrArgs) -> None:
+                value = BinaryOp.intptr(a.reg(0), "+", a.reg(0))
+                s.set_reg(Register("condition_bit"), CarryBit(value))
+                s.set_reg(a.reg_ref(0), value)
+
+        elif mnemonic in ("addc", "subc"):
             assert (
                 len(args) == 2
                 and isinstance(args[0], Register)
                 and isinstance(args[1], Register)
             )
-            inputs = [args[0], args[1]]
-            outputs = [args[1]]
-            eval_fn = lambda s, a: s.set_reg(
-                a.reg_ref(1), cls.instrs_arithmetic[mnemonic](a)
-            )
+            inputs = [args[0], args[1], Register("condition_bit")]
+            outputs = [args[1], Register("condition_bit")]
+
+            def eval_fn(s: NodeState, a: InstrArgs) -> None:
+                carry = a.regs[Register("condition_bit")]
+                op = "+" if mnemonic == "addc" else "-"
+                value = BinaryOp.intptr(a.reg(1), op, a.reg(0))
+                value = BinaryOp.intptr(value, op, carry)
+                s.set_reg(Register("condition_bit"), CarryBit(value))
+                s.set_reg(a.reg_ref(1), value)
         elif mnemonic == "tst":
             assert (
                 len(args) == 2
@@ -206,11 +258,12 @@ class Sh2Arch(Arch):
     instrs_arithmetic: InstrMap = {
         # sh2 format is src, dst
         # add handler is dest, left, right
-        "add": lambda a: handle_add(
-            replace(
-                a,
-                raw_args=[a.raw_arg(1), a.raw_arg(1), a.raw_arg(0)],
-            )
+        "add": lambda a: (
+            handle_add
+            if isinstance(a.raw_arg(0), Register)
+            else handle_addi
+        )(
+            replace(a, raw_args=[a.raw_arg(1), a.raw_arg(1), a.raw_arg(0)])
         ),
         "sub": lambda a: handle_sub(a.reg(1), a.reg(0)),
     }
@@ -234,17 +287,59 @@ class Sh2Arch(Arch):
         possible_slots: List[AbiArgSlot] = []
 
         if fn_sig.params_known:
-            for i, param in enumerate(fn_sig.params):
-                param_type = param.type.decay()
-                reg = Register(f"r{i + 4}") if i < 4 else None
-                stack_offset = None if reg is not None else (i - 4) * 4
+            if (
+                fn_sig.return_type.is_struct()
+                and fn_sig.return_type.get_parameter_size_align_bytes()[0] > 8
+            ):
                 known_slots.append(
                     AbiArgSlot(
-                        ArgLoc(stack_offset, i, reg),
-                        param_type,
-                        name=param.name,
+                        ArgLoc(None, -1, Register("r2")),
+                        Type.ptr(fn_sig.return_type),
+                        name="__return__",
+                        comment="return",
                     )
                 )
+
+            offset = 0
+            for param in fn_sig.params:
+                param_type = param.type.decay()
+                size, align = param_type.get_parameter_size_align_bytes()
+                # The GNU SH ABI aligns parameter words to at most 4 bytes,
+                # including long long and double.
+                align = min(align, 4)
+                size = (size + 3) & ~3
+                offset = (offset + align - 1) & -align
+                for i in range(offset // 4, (offset + size) // 4):
+                    part_offset = i * 4 - offset
+                    reg = Register(f"r{i + 4}") if i < 4 else None
+                    stack_offset = None if reg is not None else (i - 4) * 4
+                    if size > 4:
+                        name = (
+                            f"{param.name}_unk{part_offset:X}" if param.name else None
+                        )
+                        slot_type = Type.any()
+                        comment = f"{param_type}+{part_offset:#x}"
+                    else:
+                        name = param.name
+                        slot_type = param_type
+                        comment = None
+                    known_slots.append(
+                        AbiArgSlot(
+                            ArgLoc(stack_offset, i, reg),
+                            slot_type,
+                            name=name,
+                            comment=comment,
+                        )
+                    )
+                offset += size
+
+            if fn_sig.is_variadic:
+                for i in range(offset // 4, 4):
+                    candidate_slots.append(
+                        AbiArgSlot(
+                            ArgLoc(None, i, Register(f"r{i + 4}")), Type.any_reg()
+                        )
+                    )
         else:
             candidate_slots = [
                 AbiArgSlot(ArgLoc(None, i, Register(f"r{i + 4}")), Type.intptr())
