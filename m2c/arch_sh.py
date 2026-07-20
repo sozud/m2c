@@ -180,6 +180,14 @@ class Sh2Arch(Arch):
         ]
     )
 
+    @classmethod
+    def mov_type(cls, mnemonic: str) -> Type:
+        return {
+            "mov.b": Type.s8(),
+            "mov.w": Type.s16(),
+            "mov.l": Type.reg32(likely_float=False),
+        }[mnemonic]
+
     aliased_regs: Dict[str, Register] = {}
 
     @classmethod
@@ -241,11 +249,7 @@ class Sh2Arch(Arch):
                 if args[1].writeback is None:
 
                     def eval_fn(s: NodeState, a: InstrArgs) -> None:
-                        store_type = {
-                            "mov.b": Type.s8(),
-                            "mov.w": Type.s16(),
-                            "mov.l": Type.reg32(likely_float=False),
-                        }[mnemonic]
+                        store_type = cls.mov_type(mnemonic)
                         store = make_store(a, store_type)
                         if store is not None:
                             s.store_memory(store, a.reg_ref(0))
@@ -274,11 +278,7 @@ class Sh2Arch(Arch):
                             writeback_base,
                             BinaryOp.intptr(a.regs[writeback_base], "-", Literal(size)),
                         )
-                        store_type = {
-                            "mov.b": Type.s8(),
-                            "mov.w": Type.s16(),
-                            "mov.l": Type.reg32(likely_float=False),
-                        }[mnemonic]
+                        store_type = cls.mov_type(mnemonic)
                         store = make_store(a, store_type)
                         if store is not None:
                             s.store_memory(store, a.reg_ref(0))
@@ -302,11 +302,7 @@ class Sh2Arch(Arch):
                     outputs.append(writeback_base)
 
                     def eval_fn(s: NodeState, a: InstrArgs) -> None:
-                        load_type = {
-                            "mov.b": Type.s8(),
-                            "mov.w": Type.s16(),
-                            "mov.l": Type.reg32(likely_float=False),
-                        }[mnemonic]
+                        load_type = cls.mov_type(mnemonic)
                         value = handle_load(
                             replace(a, raw_args=[a.raw_arg(1), a.raw_arg(0)]),
                             type=load_type,
@@ -319,11 +315,7 @@ class Sh2Arch(Arch):
                         )
 
                 else:
-                    load_type = {
-                        "mov.b": Type.s8(),
-                        "mov.w": Type.s16(),
-                        "mov.l": Type.reg32(likely_float=False),
-                    }[mnemonic]
+                    load_type = cls.mov_type(mnemonic)
                     eval_fn = lambda s, a: s.set_reg(
                         a.reg_ref(1),
                         handle_load(
