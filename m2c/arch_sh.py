@@ -232,13 +232,6 @@ class Sh2Arch(Arch):
             else:
                 assert isinstance(args[0], AsmLiteral)
                 eval_fn = lambda s, a: s.set_reg(a.reg_ref(1), Literal(a.imm_value(0)))
-        elif mnemonic == "mova":
-            assert (
-                len(args) == 2
-                and isinstance(args[0], AsmGlobalSymbol)
-                and isinstance(args[1], Register)
-            )
-            outputs = [args[1]]
         elif mnemonic in ("mov.b", "mov.l", "mov.w"):
             assert len(args) == 2
             if isinstance(args[0], Register):
@@ -260,11 +253,13 @@ class Sh2Arch(Arch):
                 elif (
                     args[1].writeback == Writeback.PRE
                     and args[1].base == cls.stack_pointer_reg
-                    and args[0] not in cls.saved_regs
                 ):
 
                     def eval_fn(s: NodeState, a: InstrArgs) -> None:
-                        s.push_subroutine_arg(a.reg(0))
+                        source_raw = a.regs.get_raw(a.reg_ref(0))
+                        assert source_raw is not None
+                        if not s.stack_info.should_save(source_raw, a.memory_ref(1).offset):
+                            s.push_subroutine_arg(a.reg(0))
 
                 elif (
                     args[1].writeback == Writeback.PRE
