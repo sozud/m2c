@@ -262,7 +262,9 @@ class Sh2Arch(Arch):
                     def eval_fn(s: NodeState, a: InstrArgs) -> None:
                         source_raw = a.regs.get_raw(a.reg_ref(0))
                         assert source_raw is not None
-                        if not s.stack_info.should_save(source_raw, a.memory_ref(1).offset):
+                        if not s.stack_info.should_save(
+                            source_raw, a.memory_ref(1).offset
+                        ):
                             s.push_subroutine_arg(a.reg(0))
 
                 elif (
