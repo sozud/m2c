@@ -628,13 +628,27 @@ def make_store_real(
     return StoreStmt(source=as_type(source_val, type, silent=is_stack), dest=dest)
 
 
+def indexed_address(args: InstrArgs) -> Expression:
+    base = args.reg(1)
+    index = args.reg(2)
+    unwrapped_base = early_unwrap(base)
+    unwrapped_index = early_unwrap(index)
+    if (
+        args.stack_info.global_info.arch.arch == Target.ArchEnum.SH2
+        and isinstance(unwrapped_base, Literal)
+        and isinstance(unwrapped_index, Literal)
+    ):
+        return Literal(unwrapped_base.value + unwrapped_index.value)
+    return BinaryOp.intptr(left=base, op="+", right=index)
+
+
 def make_storex(args: InstrArgs, type: Type) -> Optional[StoreStmt]:
     # "indexed stores" like `stwx rS, rA, rB` write `rS` into `(rA + rB)`
     size = type.get_size_bytes()
     assert size is not None
 
     source = args.reg(0)
-    ptr = BinaryOp.intptr(left=args.reg(1), op="+", right=args.reg(2))
+    ptr = indexed_address(args)
 
     # TODO: Can we assume storex's are never used to save registers to the stack?
     dest = deref(ptr, args.regs, args.stack_info, size=size, store=True)
