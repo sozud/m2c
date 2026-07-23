@@ -1450,7 +1450,7 @@ def handle_loadx(args: InstrArgs, type: Type) -> Expression:
     size = type.get_size_bytes()
     assert size is not None
 
-    ptr = BinaryOp.intptr(left=args.reg(1), op="+", right=args.reg(2))
+    ptr = indexed_address(args)
     expr = deref(ptr, args.regs, args.stack_info, size=size)
     return as_type(expr, type, silent=True)
 
