@@ -35,6 +35,7 @@ from .translate import (
     FuncCall,
     GlobalSymbol,
     InstrArgs,
+    InstrRef,
     Literal,
     Load3Bytes,
     LocalVar,
@@ -195,7 +196,14 @@ def load_upper(args: InstrArgs) -> Expression:
     stack_info = args.stack_info
     source = stack_info.global_info.address_of_gsym(ref.sym.symbol_name)
     imm = Literal(ref.offset)
-    return handle_addi_real(args.reg_ref(0), None, source, imm, args)
+    return handle_addi_real(
+        args.reg_ref(0),
+        None,
+        source,
+        imm,
+        args.stack_info,
+        args.instruction_ref,
+    )
 
 
 def handle_convert(expr: Expression, dest_type: Type, source_type: Type) -> Cast:
@@ -211,14 +219,22 @@ def handle_la(args: InstrArgs) -> Expression:
     stack_info = args.stack_info
     if isinstance(target, AddressMode):
         return handle_addi(
-            replace(
-                args,
-                raw_args=[output_reg, target.base, AsmLiteral(target.offset)],
-            )
+            output_reg,
+            target.base,
+            args.regs[target.base],
+            Literal(target.offset),
+            stack_info,
+            args.instruction_ref,
         )
 
     sym = stack_info.global_info.address_of_gsym(target.sym.symbol_name)
-    return add_imm(output_reg, sym, Literal(target.offset), args)
+    return add_imm(
+        output_reg,
+        sym,
+        Literal(target.offset),
+        stack_info,
+        args.instruction_ref,
+    )
 
 
 def handle_lw(args: InstrArgs) -> Expression:
@@ -226,7 +242,13 @@ def handle_lw(args: InstrArgs) -> Expression:
     if ref is not None:
         # Handle `lw $a, %got(x + offset)($gp)` as an address load rather than a load.
         sym = args.stack_info.global_info.address_of_gsym(ref.sym.symbol_name)
-        return add_imm(args.reg_ref(0), sym, Literal(ref.offset), args)
+        return add_imm(
+            args.reg_ref(0),
+            sym,
+            Literal(ref.offset),
+            args.stack_info,
+            args.instruction_ref,
+        )
     return handle_load(args, type=Type.reg32(likely_float=False))
 
 
@@ -313,23 +335,42 @@ def handle_xori(args: InstrArgs) -> Expression:
     return BinaryOp.int(left=left, op="^", right=right)
 
 
-def handle_addi(
-    args: InstrArgs,
-    arm: bool = False,
-    imm: Optional[Expression] = None,
-) -> Expression:
+def handle_addi_args(args: InstrArgs) -> Expression:
     output_reg = args.reg_ref(0)
     source_reg = args.reg_ref(1)
+    stack_info = args.stack_info
 
     ref = args.maybe_gprel_imm(2)
     if ref is not None and source_reg == Register("gp"):
-        sym = args.stack_info.global_info.address_of_gsym(ref.sym.symbol_name)
-        return add_imm(output_reg, sym, Literal(ref.offset), args)
+        sym = stack_info.global_info.address_of_gsym(ref.sym.symbol_name)
+        return add_imm(
+            output_reg,
+            sym,
+            Literal(ref.offset),
+            stack_info,
+            args.instruction_ref,
+        )
 
-    source = args.reg(1)
-    if imm is None:
-        imm = args.full_imm(2) if arm else args.s16_imm(2)
+    return handle_addi(
+        output_reg,
+        source_reg,
+        args.reg(1),
+        args.s16_imm(2),
+        stack_info,
+        args.instruction_ref,
+    )
 
+
+def handle_addi(
+    output_reg: Register,
+    source_reg: Register,
+    source: Expression,
+    imm: Expression,
+    stack_info: StackInfo,
+    instruction_ref: InstrRef,
+    *,
+    arm: bool = False,
+) -> Expression:
     if imm == Literal(0):
         return source
 
@@ -345,9 +386,20 @@ def handle_addi(
         and (uw_source.right.value % 0x10000 == 0 or (arm and imm.value % 0x100 == 0))
     ):
         return add_imm(
-            output_reg, uw_source.left, Literal(imm.value + uw_source.right.value), args
+            output_reg,
+            uw_source.left,
+            Literal(imm.value + uw_source.right.value),
+            stack_info,
+            instruction_ref,
         )
-    return handle_addi_real(output_reg, source_reg, source, imm, args)
+    return handle_addi_real(
+        output_reg,
+        source_reg,
+        source,
+        imm,
+        stack_info,
+        instruction_ref,
+    )
 
 
 def handle_sub_arm(args: InstrArgs) -> Expression:
@@ -378,7 +430,14 @@ def handle_addis(args: InstrArgs) -> Expression:
     source_reg = args.reg_ref(1)
     source = args.reg(1)
     imm = args.shifted_u16_imm(2)
-    return handle_addi_real(args.reg_ref(0), source_reg, source, imm, args)
+    return handle_addi_real(
+        args.reg_ref(0),
+        source_reg,
+        source,
+        imm,
+        args.stack_info,
+        args.instruction_ref,
+    )
 
 
 def handle_addi_real(
@@ -386,9 +445,9 @@ def handle_addi_real(
     source_reg: Optional[Register],
     source: Expression,
     imm: Expression,
-    args: InstrArgs,
+    stack_info: StackInfo,
+    instruction_ref: InstrRef,
 ) -> Expression:
-    stack_info = args.stack_info
     if source_reg is not None and stack_info.is_stack_reg(source_reg):
         # Adding to sp, i.e. passing an address.
         assert isinstance(imm, Literal)
@@ -401,13 +460,22 @@ def handle_addi_real(
             stack_info.add_local_var(var)
         return AddressOf(var, type=var.type.reference())
     else:
-        return add_imm(output_reg, source, imm, args)
+        return add_imm(
+            output_reg,
+            source,
+            imm,
+            stack_info,
+            instruction_ref,
+        )
 
 
 def add_imm(
-    output_reg: Register, source: Expression, imm: Expression, args: InstrArgs
+    output_reg: Register,
+    source: Expression,
+    imm: Expression,
+    stack_info: StackInfo,
+    instruction_ref: InstrRef,
 ) -> Expression:
-    stack_info = args.stack_info
     if imm == Literal(0):
         # addiu $reg1, $reg2, 0 is a move
         # (this happens when replacing %lo(...) by 0)
@@ -418,7 +486,7 @@ def add_imm(
         # architecture). Don't do this in the case "var_x = var_x + imm": that
         # happens with loops over subarrays and it's better to expose the raw
         # immediate.
-        dest_var = stack_info.get_planned_var(output_reg, args.instruction_ref)
+        dest_var = stack_info.get_planned_var(output_reg, instruction_ref)
         arch = stack_info.global_info.arch
         inplace = dest_var is not None and var_for_expr(source) == dest_var
         if (
@@ -526,7 +594,13 @@ def handle_load(args: InstrArgs, type: Type) -> Expression:
             if isinstance(sym, AsmGlobalSymbol):
                 ent.used_as_literal = True
                 addr = args.stack_info.global_info.address_of_gsym(sym.symbol_name)
-                addr = add_imm(output_reg, addr, Literal(addend), args)
+                addr = add_imm(
+                    output_reg,
+                    addr,
+                    Literal(addend),
+                    args.stack_info,
+                    args.instruction_ref,
+                )
                 return as_type(addr, type, silent=True)
 
         return None
@@ -1209,11 +1283,25 @@ def handle_add(args: InstrArgs) -> Expression:
     # offset is too large.
     if isinstance(rhs, Literal):
         return fold_mul_chains(
-            handle_addi_real(output_reg, args.reg_ref(1), lhs, rhs, args)
+            handle_addi_real(
+                output_reg,
+                args.reg_ref(1),
+                lhs,
+                rhs,
+                args.stack_info,
+                args.instruction_ref,
+            )
         )
     if isinstance(lhs, Literal):
         return fold_mul_chains(
-            handle_addi_real(output_reg, args.reg_ref(2), rhs, lhs, args)
+            handle_addi_real(
+                output_reg,
+                args.reg_ref(2),
+                rhs,
+                lhs,
+                args.stack_info,
+                args.instruction_ref,
+            )
         )
 
     return handle_add_real(lhs, rhs, args)
@@ -1223,7 +1311,15 @@ def handle_add_arm(args: InstrArgs) -> Expression:
     if isinstance(args.raw_arg(2), Register):
         return handle_add(args)
     else:
-        return handle_addi(args, arm=True)
+        return handle_addi(
+            args.reg_ref(0),
+            args.reg_ref(1),
+            args.reg(1),
+            args.full_imm(2),
+            args.stack_info,
+            args.instruction_ref,
+            arm=True,
+        )
 
 
 def handle_add_real(
@@ -1455,7 +1551,14 @@ def handle_arm_mov(args: InstrArgs) -> Expression:
         and args.stack_info.is_stack_reg(source)
         and not args.stack_info.is_stack_reg(dest)
     ):
-        return handle_addi_real(dest, source, value, Literal(0), args)
+        return handle_addi_real(
+            dest,
+            source,
+            value,
+            Literal(0),
+            args.stack_info,
+            args.instruction_ref,
+        )
     return value
 
 

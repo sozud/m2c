@@ -78,7 +78,7 @@ from .evaluate import (
     handle_add_double,
     handle_add_float,
     handle_add_real,
-    handle_addi,
+    handle_addi_args,
     handle_addis,
     handle_cmpnez,
     handle_convert,
@@ -1165,7 +1165,16 @@ class PpcArch(Arch):
                     # Update the register in the second argument
                     update = a.reg_ref(1)
                     offset = a.reg(2)
-                    s.set_reg(update, add_imm(update, a.regs[update], offset, a))
+                    s.set_reg(
+                        update,
+                        add_imm(
+                            update,
+                            a.regs[update],
+                            offset,
+                            a.stack_info,
+                            a.instruction_ref,
+                        ),
+                    )
 
                     if store is not None:
                         s.store_memory(store, a.reg_ref(0))
@@ -1187,7 +1196,11 @@ class PpcArch(Arch):
                     s.set_reg(
                         update.base,
                         add_imm(
-                            update.base, a.regs[update.base], Literal(update.offset), a
+                            update.base,
+                            a.regs[update.base],
+                            Literal(update.offset),
+                            a.stack_info,
+                            a.instruction_ref,
                         ),
                     )
 
@@ -1234,7 +1247,14 @@ class PpcArch(Arch):
                             f"Invalid instruction, rA and rD must be different in {instr_str}"
                         )
                     s.set_reg(
-                        update_reg, add_imm(update_reg, a.regs[update_reg], offset, a)
+                        update_reg,
+                        add_imm(
+                            update_reg,
+                            a.regs[update_reg],
+                            offset,
+                            a.stack_info,
+                            a.instruction_ref,
+                        ),
                     )
 
             else:
@@ -1259,7 +1279,14 @@ class PpcArch(Arch):
                             f"Invalid instruction, rA and rD must be different in {instr_str}"
                         )
                     s.set_reg(
-                        update_reg, add_imm(update_reg, a.regs[update_reg], offset, a)
+                        update_reg,
+                        add_imm(
+                            update_reg,
+                            a.regs[update_reg],
+                            offset,
+                            a.stack_info,
+                            a.instruction_ref,
+                        ),
                     )
 
         elif mnemonic in ("stmw", "lmw"):
@@ -1616,8 +1643,8 @@ class PpcArch(Arch):
         "addc": lambda a: handle_add(a),
         "adde": lambda a: carry_add_to(handle_add(a)),
         "addze": lambda a: carry_add_to(a.reg(1)),
-        "addi": lambda a: handle_addi(a),
-        "addic": lambda a: handle_addi(a),
+        "addi": lambda a: handle_addi_args(a),
+        "addic": lambda a: handle_addi_args(a),
         "addis": lambda a: handle_addis(a),
         "subf": lambda a: fold_divmod(BinaryOp.intptr(a.reg(2), "-", a.reg(1))),
         "subfc": lambda a: fold_divmod(BinaryOp.intptr(a.reg(2), "-", a.reg(1))),
