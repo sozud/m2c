@@ -150,6 +150,32 @@ class DoubledJumpTablePattern(SimpleAsmPattern):
         )
 
 
+class DoubledMoveJumpTablePattern(SimpleAsmPattern):
+    """Match a dispatch which copies an already doubled table index."""
+
+    pattern = make_pattern(
+        "mov $x, $i",
+        "mova _, $b",
+        "mov.w @($b,$i),$i",
+        "add $i, $b",
+        "jmp @$b",
+        "nop",
+    )
+
+    def replace(self, m: AsmMatch) -> Optional[Replacement]:
+        targets = jump_table_targets(m, 1)
+        if targets is None:
+            return None
+        return Replacement(
+            [
+                m.body[0],
+                AsmInstruction("tablejmp.doubled.fictive", [m.regs["i"], *targets]),
+                AsmInstruction("nop", []),
+            ],
+            len(m.body),
+        )
+
+
 class NegateTPattern(SimpleAsmPattern):
     pattern = make_pattern(
         "rotcl $r",
@@ -840,6 +866,7 @@ class Sh2Arch(Arch):
         DivisionHelperPattern(),
         JumpTablePattern(),
         DoubledJumpTablePattern(),
+        DoubledMoveJumpTablePattern(),
         Sh2AddrModeWritebackPattern(),
         NegateTPattern(),
         SubcSelfPattern(),
