@@ -234,7 +234,9 @@ class Sh2AddrModeWritebackPattern(AsmPattern):
         if addr.writeback == Writeback.PRE:
             return Replacement(
                 [
-                    AsmInstruction("add", [AsmLiteral(-stride), addr.base]),
+                    AsmInstruction(
+                        "addbytes.fictive", [AsmLiteral(-stride), addr.base]
+                    ),
                     AsmInstruction(instr.mnemonic, new_args),
                 ],
                 1,
@@ -243,7 +245,7 @@ class Sh2AddrModeWritebackPattern(AsmPattern):
         return Replacement(
             [
                 AsmInstruction(instr.mnemonic, new_args),
-                AsmInstruction("add", [AsmLiteral(stride), addr.base]),
+                AsmInstruction("addbytes.fictive", [AsmLiteral(stride), addr.base]),
             ],
             1,
         )
@@ -386,6 +388,44 @@ class Sh2Arch(Arch):
             inputs = [args[1]]
             outputs = [args[0]]
             eval_fn = lambda s, a: s.set_reg(a.reg_ref(0), a.reg(1))
+        elif mnemonic == "addbytes.fictive":
+            assert (
+                len(args) == 2
+                and isinstance(args[0], AsmLiteral)
+                and isinstance(args[1], Register)
+            )
+            inputs = [args[1]]
+            outputs = [args[1]]
+
+            def eval_fn(s: NodeState, a: InstrArgs) -> None:
+                source = a.reg(1)
+                byte_delta = a.full_imm(0)
+                assert isinstance(byte_delta, Literal)
+                delta = byte_delta.value
+                if source.type.is_pointer_or_array():
+                    target = source.type.get_pointer_target()
+                    if target is not None:
+                        target_size = target.get_size_bytes()
+                        if target_size and delta % target_size == 0:
+                            element_delta = delta // target_size
+                            if element_delta < 0:
+                                expr = BinaryOp(
+                                    left=source,
+                                    op="-",
+                                    right=Literal(-element_delta),
+                                    type=source.type,
+                                )
+                            else:
+                                expr = BinaryOp(
+                                    left=source,
+                                    op="+",
+                                    right=Literal(element_delta),
+                                    type=source.type,
+                                )
+                            s.set_reg(a.reg_ref(1), expr)
+                            return
+                s.set_reg(a.reg_ref(1), handle_add_real(source, byte_delta, a))
+
         elif mnemonic == "mova":
             assert (
                 len(args) == 2
