@@ -164,6 +164,48 @@ class JumpTablePattern(AsmPattern):
         return None
 
 
+class BrafJumpTablePattern(SimpleAsmPattern):
+    pattern = make_pattern(
+        "mova _, $b",
+        "mov.w @($b,$i),$b",
+        "braf $b",
+        "nop",
+        ".base:",
+    )
+
+    def replace(self, m: AsmMatch) -> Optional[Replacement]:
+        mova = m.body[0]
+        assert isinstance(mova, Instruction)
+        if not isinstance(mova.args[0], AsmGlobalSymbol):
+            return None
+        table = m.asm_data.values.get(mova.args[0].symbol_name)
+        if table is None:
+            return None
+        base = m.labels[".base"]
+        targets: List[AsmGlobalSymbol] = []
+        for entry in table.data:
+            if (
+                not isinstance(entry, AsmSymbolicData)
+                or not isinstance(entry.data, BinOp)
+                or entry.data.op != "-"
+                or not isinstance(entry.data.lhs, AsmGlobalSymbol)
+                or not isinstance(entry.data.rhs, AsmGlobalSymbol)
+                or entry.data.rhs.symbol_name not in base.names
+            ):
+                return None
+            targets.append(entry.data.lhs)
+        if not targets:
+            return None
+        return Replacement(
+            [
+                AsmInstruction("tablejmp.doubled.fictive", [m.regs["i"], *targets]),
+                AsmInstruction("nop", []),
+                base,
+            ],
+            len(m.body),
+        )
+
+
 class NegateTPattern(SimpleAsmPattern):
     pattern = make_pattern(
         "rotcl $r",
@@ -999,6 +1041,7 @@ class Sh2Arch(Arch):
     asm_patterns = [
         FarJumpPattern(),
         JumpTablePattern(),
+        BrafJumpTablePattern(),
         Sh2AddrModeWritebackPattern(),
         NegateTPattern(),
         Shar31Pattern(),
