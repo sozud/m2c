@@ -816,6 +816,22 @@ class Sh2Arch(Arch):
                 condition = condition_from_expr(a.regs[Register("condition_bit")])
                 s.set_reg(Register("condition_bit"), condition.negated())
 
+        elif mnemonic == "tas.b":
+            assert (
+                len(args) == 1
+                and isinstance(args[0], AsmAddressMode)
+                and args[0].addend == AsmLiteral(0)
+            )
+            base = args[0].base
+            t_reg = Register("condition_bit")
+            inputs = [base]
+            outputs = [t_reg]
+            is_load = is_store = True
+
+            def eval_fn(s: NodeState, a: InstrArgs) -> None:
+                result = fn_op("M2C_TAS_B", [a.regs[base]], Type.intish())
+                s.set_reg(t_reg, result)
+
         elif mnemonic == "stc":
             assert (
                 len(args) == 2
