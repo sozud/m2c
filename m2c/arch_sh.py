@@ -216,10 +216,9 @@ class BsrfCallPattern(SimpleAsmPattern):
         if not isinstance(delay, Instruction):
             return None
         entry = get_literal_pool_symbolic_data(load.args[0], m.asm_data)
-        if entry is None:
-            return None
         if (
-            not isinstance(entry.data, BinOp)
+            entry is None
+            or not isinstance(entry.data, BinOp)
             or entry.data.op != "-"
             or not isinstance(entry.data.lhs, AsmGlobalSymbol)
             or not isinstance(entry.data.rhs, AsmGlobalSymbol)
