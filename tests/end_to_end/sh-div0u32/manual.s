@@ -1,0 +1,73 @@
+.text
+.globl test
+test:
+    mov r4,r0
+    xor r1,r1
+    div0u
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    div1 r5,r1
+    rotcl r0
+    rts
+    nop

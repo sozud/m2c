@@ -235,6 +235,28 @@ class BsrfCallPattern(SimpleAsmPattern):
         )
 
 
+DIV1_STEP_COUNT = 32
+
+
+class Div0u32Pattern(SimpleAsmPattern):
+
+    pattern = make_pattern(
+        "xor $r, $r",
+        "div0u",
+        *["rotcl $q", "div1 $d,$r"] * DIV1_STEP_COUNT,
+        "rotcl $q",
+    )
+
+    def replace(self, m: AsmMatch) -> Optional[Replacement]:
+        quotient, divisor, rem = m.regs["q"], m.regs["d"], m.regs["r"]
+        if len({quotient, divisor, rem}) != 3:
+            return None
+        return Replacement(
+            [AsmInstruction("udivmod32.fictive", [quotient, divisor, quotient, rem])],
+            len(m.body),
+        )
+
+
 class NegateTPattern(SimpleAsmPattern):
     pattern = make_pattern(
         "rotcl $r",
@@ -683,6 +705,19 @@ class Sh2Arch(Arch):
             eval_fn = lambda s, a: s.set_reg(
                 a.reg_ref(1), cls.instrs_source_dest[mnemonic](a)
             )
+        elif mnemonic == "udivmod32.fictive":
+            div_args: List[Location] = [
+                arg for arg in args if isinstance(arg, Register)
+            ]
+            assert len(div_args) == 4
+            inputs = div_args[:2]
+            outputs = div_args[2:]
+
+            def eval_fn(s: NodeState, a: InstrArgs) -> None:
+                dividend, divisor = a.reg(0), a.reg(1)
+                s.set_reg(a.reg_ref(2), BinaryOp.uint(dividend, "/", divisor))
+                s.set_reg(a.reg_ref(3), BinaryOp.uint(dividend, "%", divisor))
+
         elif mnemonic in cls.instrs_intrinsics:
             assert isinstance(args[0], Register)
             inputs = [arg for arg in args[1:] if isinstance(arg, Register)]
@@ -1079,6 +1114,7 @@ class Sh2Arch(Arch):
         JumpTablePattern(),
         BrafJumpTablePattern(),
         BsrfCallPattern(),
+        Div0u32Pattern(),
         Sh2AddrModeWritebackPattern(),
         NegateTPattern(),
         Shar31Pattern(),
