@@ -154,14 +154,45 @@ class JumpTablePattern(AsmPattern):
                 targets.append(entry.data.lhs)
             if not targets:
                 return None
-            return Replacement(
-                [
-                    AsmInstruction("tablejmp.doubled.fictive", [m.regs["i"], *targets]),
-                    AsmInstruction("nop", []),
-                ],
-                len(m.body),
-            )
+            jump = AsmInstruction("tablejmp.doubled.fictive", [m.regs["i"], *targets])
+            return Replacement([jump], len(m.body))
         return None
+
+
+class BrafJumpTablePattern(SimpleAsmPattern):
+    pattern = make_pattern(
+        "mova _, $b",
+        "mov.w @($b,$i),$b",
+        "braf $b",
+        "nop",
+        ".base:",
+    )
+
+    def replace(self, m: AsmMatch) -> Optional[Replacement]:
+        mova = m.body[0]
+        assert isinstance(mova, Instruction)
+        if not isinstance(mova.args[0], AsmGlobalSymbol):
+            return None
+        table = m.asm_data.values.get(mova.args[0].symbol_name)
+        if table is None:
+            return None
+        base = m.labels[".base"]
+        targets: List[AsmGlobalSymbol] = []
+        for entry in table.data:
+            if (
+                not isinstance(entry, AsmSymbolicData)
+                or not isinstance(entry.data, BinOp)
+                or entry.data.op != "-"
+                or not isinstance(entry.data.lhs, AsmGlobalSymbol)
+                or not isinstance(entry.data.rhs, AsmGlobalSymbol)
+                or entry.data.rhs.symbol_name not in base.names
+            ):
+                return None
+            targets.append(entry.data.lhs)
+        if not targets:
+            return None
+        jump = AsmInstruction("tablejmp.doubled.fictive", [m.regs["i"], *targets])
+        return Replacement([jump, base], len(m.body))
 
 
 class NegateTPattern(SimpleAsmPattern):
@@ -781,7 +812,6 @@ class Sh2Arch(Arch):
             inputs = [args[0]]
             jump_target = targets
             is_conditional = True
-            has_delay_slot = True
 
             def eval_fn(s: NodeState, a: InstrArgs) -> None:
                 index = a.reg(0)
@@ -999,6 +1029,7 @@ class Sh2Arch(Arch):
     asm_patterns = [
         FarJumpPattern(),
         JumpTablePattern(),
+        BrafJumpTablePattern(),
         Sh2AddrModeWritebackPattern(),
         NegateTPattern(),
         Shar31Pattern(),
