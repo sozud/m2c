@@ -881,7 +881,9 @@ class NaturalLoop:
     backedges: Set[Node] = field(default_factory=set)
 
 
-def get_literal_pool_symbol(arg: Argument, asm_data: AsmData) -> Optional[str]:
+def get_literal_pool_symbolic_data(
+    arg: Argument, asm_data: AsmData
+) -> Optional[AsmSymbolicData]:
     offset = 0
     if isinstance(arg, BinOp) and arg.op == "+" and isinstance(arg.rhs, AsmLiteral):
         offset = arg.rhs.value
@@ -894,6 +896,13 @@ def get_literal_pool_symbol(arg: Argument, asm_data: AsmData) -> Optional[str]:
         return None
     data = ent.data_at_offset(offset, 4)
     if not isinstance(data, AsmSymbolicData):
+        return None
+    return data
+
+
+def get_literal_pool_symbol(arg: Argument, asm_data: AsmData) -> Optional[str]:
+    data = get_literal_pool_symbolic_data(arg, asm_data)
+    if data is None:
         return None
     return data.as_symbol_without_addend()
 

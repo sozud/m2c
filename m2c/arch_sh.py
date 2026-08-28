@@ -26,7 +26,13 @@ from .asm_pattern import (
     SimpleAsmPattern,
     make_pattern,
 )
-from .flow_graph import ArchFlowGraph, FlowGraph, Node, get_literal_pool_symbol
+from .flow_graph import (
+    ArchFlowGraph,
+    FlowGraph,
+    Node,
+    get_literal_pool_symbol,
+    get_literal_pool_symbolic_data,
+)
 from .instruction import (
     Instruction,
     InstructionMeta,
@@ -193,6 +199,40 @@ class BrafJumpTablePattern(SimpleAsmPattern):
             return None
         jump = AsmInstruction("tablejmp.doubled.fictive", [m.regs["i"], *targets])
         return Replacement([jump, base], len(m.body))
+
+
+class BsrfCallPattern(SimpleAsmPattern):
+    pattern = make_pattern(
+        "mov.l _,$r",
+        "bsrf $r",
+        "*",
+        ".base:",
+    )
+
+    def replace(self, m: AsmMatch) -> Optional[Replacement]:
+        load = m.body[0]
+        assert isinstance(load, Instruction)
+        delay = m.wildcard_items[0]
+        if not isinstance(delay, Instruction):
+            return None
+        entry = get_literal_pool_symbolic_data(load.args[0], m.asm_data)
+        if (
+            entry is None
+            or not isinstance(entry.data, BinOp)
+            or entry.data.op != "-"
+            or not isinstance(entry.data.lhs, AsmGlobalSymbol)
+            or not isinstance(entry.data.rhs, AsmGlobalSymbol)
+            or entry.data.rhs.symbol_name not in m.labels[".base"].names
+        ):
+            return None
+        return Replacement(
+            [
+                AsmInstruction("bsr", [entry.data.lhs]),
+                delay,
+                m.labels[".base"],
+            ],
+            len(m.body),
+        )
 
 
 class NegateTPattern(SimpleAsmPattern):
@@ -770,6 +810,14 @@ class Sh2Arch(Arch):
                     condition = condition.negated()
                 s.set_branch_condition(condition)
 
+        elif mnemonic == "bsr":
+            assert len(args) == 1
+            inputs = list(cls.argument_regs)
+            outputs = list(cls.all_return_regs)
+            clobbers = list(cls.temp_regs)
+            function_target = args[0]
+            has_delay_slot = True
+            eval_fn = lambda s, a: s.make_function_call(a.sym_imm(0), outputs)
         elif mnemonic == "bra":
             assert len(args) == 1
             jump_target = get_jump_target(args[0])
@@ -1030,6 +1078,7 @@ class Sh2Arch(Arch):
         FarJumpPattern(),
         JumpTablePattern(),
         BrafJumpTablePattern(),
+        BsrfCallPattern(),
         Sh2AddrModeWritebackPattern(),
         NegateTPattern(),
         Shar31Pattern(),
