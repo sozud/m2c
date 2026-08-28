@@ -327,7 +327,7 @@ def normalize_ido_likely_branches(
         if not item.is_branch_likely and next_mn == "nop":
             return False
 
-        if arch.arch == Target.ArchEnum.SH2:
+        if arch.arch == Target.ArchEnum.SH:
             assert isinstance(item.jump_target, JumpTarget)
             label = item.jump_target.target
             if not (next_mn.startswith("cmp/") or next_mn == "tst"):
@@ -354,7 +354,7 @@ def normalize_ido_likely_branches(
                 return False
         return True
 
-    if arch.arch == Target.ArchEnum.SH2:
+    if arch.arch == Target.ArchEnum.SH:
         for label in asm_data.mentioned_labels:
             untouched_targets |= label_names.get(label, set())
         for item, next_item in zip(function.body, function.body[1:]):

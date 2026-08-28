@@ -329,7 +329,7 @@ class Shar16Pattern(IrPattern):
 
 
 class Sh2Arch(Arch):
-    arch = Target.ArchEnum.SH2
+    arch = Target.ArchEnum.SH
 
     def c_symbol_name(self, asm_name: str) -> str:
         if (
@@ -1291,3 +1291,7 @@ class Sh2Arch(Arch):
                 Cast(expr, reinterpret=True, silent=False, type=Type.u64())
             ),
         }
+
+
+class Sh4Arch(Sh2Arch):
+    pass

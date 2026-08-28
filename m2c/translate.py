@@ -672,21 +672,21 @@ def get_stack_info(
             # pointers enabled; thus fp should be treated the same as sp.
             info.frame_pointer_reg = inst.args[0]
         elif (
-            arch_mnemonic == "sh2:mov"
+            arch_mnemonic == "sh:mov"
             and inst.args[0] == arch.stack_pointer_reg
             and isinstance(inst.args[1], Register)
             and inst.args[1] in arch.frame_pointer_regs
         ):
             info.frame_pointer_reg = inst.args[1]
         elif (
-            arch_mnemonic == "sh2:add"
+            arch_mnemonic == "sh:add"
             and isinstance(inst.args[0], AsmLiteral)
             and inst.args[0].as_s8() < 0
             and inst.args[1] == arch.stack_pointer_reg
         ):
             info.allocated_stack_size += -inst.args[0].as_s8()
         elif (
-            arch_mnemonic in ("sh2:mov.l", "sh2:sts.l")
+            arch_mnemonic in ("sh:mov.l", "sh:sts.l")
             and isinstance(inst.args[0], Register)
             and inst.args[0] in arch.saved_regs
             and isinstance(inst.args[1], AsmAddressMode)
@@ -757,7 +757,7 @@ def get_stack_info(
             assert isinstance(inst.args[2], AsmLiteral)
             temp_reg_values[inst.args[0]] |= inst.args[2].value
 
-    if arch.arch in (Target.ArchEnum.ARM, Target.ArchEnum.SH2):
+    if arch.arch in (Target.ArchEnum.ARM, Target.ArchEnum.SH):
         # On ARM and SH we don't know the stack size up front, so
         # callee_saved_offsets needs to be adjusted after scanning the full first block.
         for i in range(len(callee_saved_offsets)):

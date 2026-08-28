@@ -489,7 +489,7 @@ def handle_load(args: InstrArgs, type: Type) -> Expression:
 
         arch = args.stack_info.global_info.arch.arch
         is_arm = arch == Target.ArchEnum.ARM
-        is_sh = arch == Target.ArchEnum.SH2
+        is_sh = arch == Target.ArchEnum.SH
         if is_arm and isinstance(args.raw_arg(1), AsmAddressMode):
             # For ARM, only allow constants loaded through `ldr pool`.
             # Do allow non-zero offsets: they occur in raw agbcc output which

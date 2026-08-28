@@ -26,7 +26,7 @@ from .types import TypePool
 from .arch_arm import ArmArch, ArmGbaArch
 from .arch_mips import MipsArch, MipseeArch
 from .arch_ppc import PpcArch
-from .arch_sh import Sh2Arch
+from .arch_sh import Sh2Arch, Sh4Arch
 
 
 @dataclass
@@ -100,8 +100,11 @@ def run(options: Options) -> int:
             arch = ArmGbaArch()
         else:
             arch = ArmArch()
-    elif options.target.arch == Target.ArchEnum.SH2:
-        arch = Sh2Arch()
+    elif options.target.arch == Target.ArchEnum.SH:
+        if options.target.platform == Target.PlatformEnum.SH4:
+            arch = Sh4Arch()
+        else:
+            arch = Sh2Arch()
     else:
         raise ValueError(f"Invalid target arch: {options.target.arch}")
 

@@ -11,6 +11,8 @@ from tempfile import NamedTemporaryFile
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field, replace
 
+import shc_to_gas
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,6 +29,7 @@ class PathsToBinaries:
     MWCC_CC: Optional[Path]
     AGBCC: Optional[Path]
     SH_CC: Optional[Path]
+    SHC_CC: Optional[Path]
     WINE: Optional[Path]
 
 
@@ -54,6 +57,10 @@ def get_environment_variables() -> PathsToBinaries:
         "SH_CC",
         "env variable SH_CC should point to SHGCC. see tools/setup_sh_compiler.sh",
     )
+    SHC_CC = load(
+        "SHC_CC",
+        "env variable SHC_CC should point to SHC",
+    )
     WINE = None
     if MWCC_CC and sys.platform.startswith("linux"):
         WINE = load("WINE", "env variable WINE should point to wine or wibo binary")
@@ -62,6 +69,7 @@ def get_environment_variables() -> PathsToBinaries:
         MWCC_CC=MWCC_CC,
         AGBCC=AGBCC,
         SH_CC=SH_CC,
+        SHC_CC=SHC_CC,
         WINE=WINE,
     )
 
@@ -170,12 +178,41 @@ def get_sh_compilers(paths: PathsToBinaries) -> List[Tuple[str, Compiler]]:
     return []
 
 
+def get_shc_compilers(paths: PathsToBinaries) -> List[Tuple[str, Compiler]]:
+    if paths.SHC_CC is not None:
+        shc = Compiler(
+            name="shc",
+            cc_command=[
+                str(paths.SHC_CC),
+                "-comment=nonest",
+                "-cpu=sh4",
+                "-division=cpu",
+                "-endian=little",
+                "-fpu=single",
+                "-macsave=0",
+                "-sjis",
+                "-string=const",
+            ],
+        )
+        return [
+            (
+                "sh4-shc-o1",
+                shc.with_cc_flags(
+                    ["-optimize=1", "-speed", "-aggressive=2", "-code=asmcode"]
+                ),
+            )
+        ]
+    logger.warning("SHC compiler not found; skipping")
+    return []
+
+
 def get_compilers(paths: PathsToBinaries) -> List[Tuple[str, Compiler]]:
     compilers: List[Tuple[str, Compiler]] = []
     compilers.extend(get_ido_compilers(paths))
     compilers.extend(get_mwcc_compilers(paths))
     compilers.extend(get_agbcc_compilers(paths))
     compilers.extend(get_sh_compilers(paths))
+    compilers.extend(get_shc_compilers(paths))
     return compilers
 
 
@@ -212,7 +249,12 @@ def do_compilation_step(
 def run_compile(in_file: Path, out_file: Path, compiler: Compiler) -> None:
     flags_str = " ".join(compiler.cc_command)
     logger.info(f"Compiling {in_file} to {out_file} using: {flags_str}")
-    if compiler.name in ("agbcc", "sh-gcc"):
+    if compiler.name == "shc":
+        with NamedTemporaryFile(suffix=".src") as temp_src_file:
+            do_compilation_step(temp_src_file.name, str(in_file), compiler)
+            hitachi_asm = Path(temp_src_file.name).read_text()
+        out_file.write_text(shc_to_gas.convert(hitachi_asm))
+    elif compiler.name in ("agbcc", "sh-gcc"):
         with NamedTemporaryFile(suffix=".i") as temp_i_file:
             subprocess.run(
                 ["cpp", "-P", "-o", temp_i_file.name, str(in_file)], check=True
@@ -261,7 +303,7 @@ def add_test_from_file(
             continue
         try:
             run_compile(orig_file, asm_file_path, compiler)
-            if compiler.name in ("mwcc", "agbcc", "sh-gcc"):
+            if compiler.name in ("mwcc", "agbcc", "sh-gcc", "shc"):
                 # If the flags file doesn't exist, initialize it with the correct --target
                 flags_path = test_dir / (asm_filename + "-flags.txt")
                 if not flags_path.exists():
@@ -269,6 +311,8 @@ def add_test_from_file(
                         target = "ppc-mwcc-c"
                     elif compiler.name == "agbcc":
                         target = "gba"
+                    elif compiler.name == "shc":
+                        target = "sh4-shc-c"
                     else:
                         target = "sh2-gcc-c"
                     flags_path.write_text(f"--target {target}\n")
