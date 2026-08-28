@@ -26,7 +26,13 @@ from .asm_pattern import (
     SimpleAsmPattern,
     make_pattern,
 )
-from .flow_graph import ArchFlowGraph, FlowGraph, Node, get_literal_pool_symbol
+from .flow_graph import (
+    ArchFlowGraph,
+    FlowGraph,
+    Node,
+    get_literal_pool_data,
+    get_literal_pool_symbol,
+)
 from .instruction import (
     Instruction,
     InstructionMeta,
@@ -208,15 +214,11 @@ class BsrfCallPattern(SimpleAsmPattern):
         delay = m.wildcard_items[0]
         if not isinstance(load, Instruction) or not isinstance(delay, Instruction):
             return None
-        if not isinstance(load.args[0], AsmGlobalSymbol):
+        entry = get_literal_pool_data(load.args[0], m.asm_data)
+        if entry is None:
             return None
-        literal = m.asm_data.values.get(load.args[0].symbol_name)
-        if literal is None or len(literal.data) != 1:
-            return None
-        entry = literal.data[0]
         if (
-            not isinstance(entry, AsmSymbolicData)
-            or not isinstance(entry.data, BinOp)
+            not isinstance(entry.data, BinOp)
             or entry.data.op != "-"
             or not isinstance(entry.data.lhs, AsmGlobalSymbol)
             or not isinstance(entry.data.rhs, AsmGlobalSymbol)
