@@ -195,6 +195,44 @@ class BrafJumpTablePattern(SimpleAsmPattern):
         return Replacement([jump, base], len(m.body))
 
 
+class BsrfCallPattern(SimpleAsmPattern):
+    pattern = make_pattern(
+        "mov.l _,$r",
+        "bsrf $r",
+        "*",
+        ".base:",
+    )
+
+    def replace(self, m: AsmMatch) -> Optional[Replacement]:
+        load = m.body[0]
+        delay = m.wildcard_items[0]
+        if not isinstance(load, Instruction) or not isinstance(delay, Instruction):
+            return None
+        if not isinstance(load.args[0], AsmGlobalSymbol):
+            return None
+        literal = m.asm_data.values.get(load.args[0].symbol_name)
+        if literal is None or len(literal.data) != 1:
+            return None
+        entry = literal.data[0]
+        if (
+            not isinstance(entry, AsmSymbolicData)
+            or not isinstance(entry.data, BinOp)
+            or entry.data.op != "-"
+            or not isinstance(entry.data.lhs, AsmGlobalSymbol)
+            or not isinstance(entry.data.rhs, AsmGlobalSymbol)
+            or entry.data.rhs.symbol_name not in m.labels[".base"].names
+        ):
+            return None
+        return Replacement(
+            [
+                AsmInstruction("bsr", [entry.data.lhs]),
+                delay,
+                m.labels[".base"],
+            ],
+            len(m.body),
+        )
+
+
 class NegateTPattern(SimpleAsmPattern):
     pattern = make_pattern(
         "rotcl $r",
@@ -770,6 +808,14 @@ class Sh2Arch(Arch):
                     condition = condition.negated()
                 s.set_branch_condition(condition)
 
+        elif mnemonic == "bsr":
+            assert len(args) == 1
+            inputs = list(cls.argument_regs)
+            outputs = list(cls.all_return_regs)
+            clobbers = list(cls.temp_regs)
+            function_target = args[0]
+            has_delay_slot = True
+            eval_fn = lambda s, a: s.make_function_call(a.sym_imm(0), outputs)
         elif mnemonic == "bra":
             assert len(args) == 1
             jump_target = get_jump_target(args[0])
@@ -1030,6 +1076,7 @@ class Sh2Arch(Arch):
         FarJumpPattern(),
         JumpTablePattern(),
         BrafJumpTablePattern(),
+        BsrfCallPattern(),
         Sh2AddrModeWritebackPattern(),
         NegateTPattern(),
         Shar31Pattern(),
