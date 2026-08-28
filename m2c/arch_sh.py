@@ -154,13 +154,8 @@ class JumpTablePattern(AsmPattern):
                 targets.append(entry.data.lhs)
             if not targets:
                 return None
-            return Replacement(
-                [
-                    AsmInstruction("tablejmp.doubled.fictive", [m.regs["i"], *targets]),
-                    AsmInstruction("nop", []),
-                ],
-                len(m.body),
-            )
+            jump = AsmInstruction("tablejmp.doubled.fictive", [m.regs["i"], *targets])
+            return Replacement([jump], len(m.body))
         return None
 
 
@@ -196,14 +191,8 @@ class BrafJumpTablePattern(SimpleAsmPattern):
             targets.append(entry.data.lhs)
         if not targets:
             return None
-        return Replacement(
-            [
-                AsmInstruction("tablejmp.doubled.fictive", [m.regs["i"], *targets]),
-                AsmInstruction("nop", []),
-                base,
-            ],
-            len(m.body),
-        )
+        jump = AsmInstruction("tablejmp.doubled.fictive", [m.regs["i"], *targets])
+        return Replacement([jump, base], len(m.body))
 
 
 class NegateTPattern(SimpleAsmPattern):
@@ -823,7 +812,6 @@ class Sh2Arch(Arch):
             inputs = [args[0]]
             jump_target = targets
             is_conditional = True
-            has_delay_slot = True
 
             def eval_fn(s: NodeState, a: InstrArgs) -> None:
                 index = a.reg(0)
