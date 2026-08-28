@@ -30,8 +30,8 @@ from .flow_graph import (
     ArchFlowGraph,
     FlowGraph,
     Node,
-    get_literal_pool_data,
     get_literal_pool_symbol,
+    get_literal_pool_symbolic_data,
 )
 from .instruction import (
     Instruction,
@@ -211,10 +211,11 @@ class BsrfCallPattern(SimpleAsmPattern):
 
     def replace(self, m: AsmMatch) -> Optional[Replacement]:
         load = m.body[0]
+        assert isinstance(load, Instruction)
         delay = m.wildcard_items[0]
-        if not isinstance(load, Instruction) or not isinstance(delay, Instruction):
+        if not isinstance(delay, Instruction):
             return None
-        entry = get_literal_pool_data(load.args[0], m.asm_data)
+        entry = get_literal_pool_symbolic_data(load.args[0], m.asm_data)
         if entry is None:
             return None
         if (
