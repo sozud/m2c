@@ -52,7 +52,7 @@ def get_environment_variables() -> PathsToBinaries:
     AGBCC = load("AGBCC", "env variable AGBCC should point to an AGBCC cc binary")
     SH_CC = load(
         "SH_CC",
-        "env variable SH_CC should point to SHGCC",
+        "env variable SH_CC should point to SHGCC. see tools/setup_sh_compiler.sh",
     )
     WINE = None
     if MWCC_CC and sys.platform.startswith("linux"):
@@ -157,10 +157,16 @@ def get_sh_compilers(paths: PathsToBinaries) -> List[Tuple[str, Compiler]]:
     if paths.SH_CC is not None:
         sh_gcc = Compiler(
             name="sh-gcc",
-            cc_command=[str(paths.SH_CC)],
+            cc_command=[
+                str(paths.SH_CC),
+                "-S",
+                "-m2",
+                "-dp",
+                "-fsigned-char",
+            ],
         )
         return [("sh2-gcc-o2", sh_gcc.with_cc_flags(["-O2"]))]
-    logger.warning("SH compiler not found; skipping")
+    logger.warning("SH compiler not found; skipping. see tools/setup_sh_compiler.sh")
     return []
 
 
