@@ -33,97 +33,24 @@ becomes:
     .long 0x1234
 """
 
+import re
 import sys
 from typing import List, Optional, Tuple
 
 
-def is_hex_digit(c: str) -> bool:
-    return c in "0123456789abcdefABCDEF"
-
-
 def hex_converted(text: str) -> str:
     """convert H'1234 into GNU as syntax 0x1234"""
-    out = []
-    i = 0
-
-    while i < len(text):
-        if (
-            i + 2 < len(text)
-            and text[i].upper() == "H"
-            and text[i + 1] == "'"
-            and is_hex_digit(text[i + 2])
-        ):
-            out.append("0x")
-            i += 2
-
-            while i < len(text) and is_hex_digit(text[i]):
-                out.append(text[i])
-                i += 1
-        else:
-            out.append(text[i])
-            i += 1
-
-    return "".join(out)
+    return re.sub(r"h'(?=[0-9a-f])", "0x", text, flags=re.IGNORECASE)
 
 
-def parse_fr(s: str, pos: int) -> Optional[Tuple[int, str]]:
-    """parse a floating point register name (FR0 - FR15) at s[pos:]"""
-    while pos < len(s) and s[pos].isspace():
-        pos += 1
-
-    start = pos
-
-    if pos + 2 > len(s) or s[pos : pos + 2].upper() != "FR":
-        return None
-
-    pos += 2
-    digits_start = pos
-
-    while pos < len(s) and s[pos].isdigit():
-        pos += 1
-
-    if pos == digits_start:
-        return None
-
-    return pos, s[start:pos]
-
-
-def convert_fmov_reg_reg(raw: str) -> Optional[str]:
+def convert_fmov_reg_reg(raw: str) -> str:
     """FMOV.S FRn,FRm -> FMOV FRn,FRm"""
-    for i in range(max(0, len(raw) - 5)):
-        if i > 0:
-            prev = raw[i - 1]
-            if prev.isalnum() or prev == "_":
-                continue
-
-        if raw[i : i + 6].upper() != "FMOV.S":
-            continue
-
-        pos = i + 6
-
-        parsed = parse_fr(raw, pos)
-        if parsed is None:
-            continue
-
-        pos, r1 = parsed
-
-        while pos < len(raw) and raw[pos].isspace():
-            pos += 1
-
-        if pos >= len(raw) or raw[pos] != ",":
-            continue
-
-        pos += 1
-
-        parsed = parse_fr(raw, pos)
-        if parsed is None:
-            continue
-
-        pos, r2 = parsed
-
-        return raw[:i] + "FMOV " + r1 + "," + r2 + raw[pos:]
-
-    return None
+    return re.sub(
+        r"\bFMOV\.S(\s+FR\d+\s*,\s*FR\d+)",
+        r"FMOV\1",
+        raw,
+        flags=re.IGNORECASE,
+    )
 
 
 SECTION_NAMES: List[Tuple[str, str]] = [
@@ -155,18 +82,12 @@ def parse_uint(s: str) -> Optional[int]:
 
 
 def convert_line(line: str) -> str:
-    if line.endswith("\r"):
-        line = line[:-1]
+    line = line.rstrip("\r")
 
     semi = line.find(";")
 
     if semi != -1:
-        converted = line[:semi]
-
-        if semi + 1 < len(line):
-            converted += " !" + line[semi + 1 :]
-
-        line = converted
+        line = line[:semi] + " !" + line[semi + 1 :]
 
     s = line.strip()
 
@@ -254,12 +175,7 @@ def convert_line(line: str) -> str:
     if s.startswith("."):
         raise ValueError("unsupported SHC directive: " + line)
 
-    fmov = convert_fmov_reg_reg(line)
-
-    if fmov is not None:
-        return hex_converted(fmov)
-
-    return hex_converted(line)
+    return hex_converted(convert_fmov_reg_reg(line))
 
 
 def convert(text: str) -> str:

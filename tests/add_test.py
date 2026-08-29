@@ -192,14 +192,13 @@ def get_shc_compilers(paths: PathsToBinaries) -> List[Tuple[str, Compiler]]:
                 "-macsave=0",
                 "-sjis",
                 "-string=const",
+                "-code=asmcode",
             ],
         )
         return [
             (
                 "sh4-shc-o1",
-                shc.with_cc_flags(
-                    ["-optimize=1", "-speed", "-aggressive=2", "-code=asmcode"]
-                ),
+                shc.with_cc_flags(["-optimize=1", "-speed", "-aggressive=2"]),
             )
         ]
     logger.warning("SHC compiler not found; skipping")
