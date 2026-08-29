@@ -2,24 +2,22 @@
 set -eu
 
 image=${SHC_CC_IMAGE:-m2c-shc-compiler:v5.1r03}
-optimize_flag=-optimize=1
 output=
 input=
 
-while [ "$#" -gt 0 ]; do
+n=$#
+while [ "$n" -gt 0 ]; do
+    n=$((n - 1))
     case "$1" in
-        -optimize=*)
-            optimize_flag=$1
-            shift
-            ;;
         -o)
             test "$#" -ge 2 || { echo "-o requires a filename" >&2; exit 2; }
             output=$2
             shift 2
+            n=$((n - 1))
             ;;
         -*)
-            echo "unsupported shc option: $1" >&2
-            exit 2
+            set -- "$@" "$1"
+            shift
             ;;
         *)
             test -z "$input" || { echo "multiple input files are not supported" >&2; exit 2; }
@@ -41,7 +39,7 @@ docker run --rm \
     --platform linux/amd64 \
     --user "$(id -u):$(id -g)" \
     --volume "$staging:/work" \
-    "$image" "$optimize_flag"
+    "$image" "$@"
 
 test -s "$staging/output.src" || { echo "SHC produced no assembly" >&2; exit 1; }
 cp "$staging/output.src" "$output"
