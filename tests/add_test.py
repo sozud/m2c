@@ -166,9 +166,7 @@ def get_sh_compilers(paths: PathsToBinaries) -> List[Tuple[str, Compiler]]:
             ],
         )
         return [("sh2-gcc-o2", sh_gcc.with_cc_flags(["-O2"]))]
-    logger.warning(
-        "SH compiler not found; skipping. see tools/setup_sh_compiler.sh"
-    )
+    logger.warning("SH compiler not found; skipping. see tools/setup_sh_compiler.sh")
     return []
 
 
