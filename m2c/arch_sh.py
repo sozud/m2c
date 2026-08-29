@@ -1318,24 +1318,26 @@ class Sh4Arch(Sh2Arch):
     def parse(
         cls, mnemonic: str, args: List[Argument], meta: InstructionMeta
     ) -> Instruction:
-        if mnemonic in ("fldi0", "fldi1"):
-            assert (
-                len(args) == 1
-                and isinstance(args[0], Register)
-                and args[0] in cls.fp_temp_regs + cls.fp_saved_regs
+        inputs: List[Location] = []
+        clobbers: List[Location] = []
+        outputs: List[Location] = []
+        eval_fn: Optional[Callable[[NodeState, InstrArgs], object]] = None
+
+        if mnemonic in cls.instrs_load_const:
+            assert len(args) == 1 and isinstance(args[0], Register)
+            outputs = [args[0]]
+            eval_fn = lambda s, a: s.set_reg(
+                a.reg_ref(0), cls.instrs_load_const[mnemonic](a)
             )
-            value = 0 if mnemonic == "fldi0" else 0x3F800000
 
-            def eval_fn(s: NodeState, a: InstrArgs) -> None:
-                s.set_reg(a.reg_ref(0), Literal(value, Type.f32()))
-
+        if eval_fn is not None:
             return Instruction(
                 mnemonic=mnemonic,
                 args=args,
                 meta=meta,
-                inputs=[],
-                clobbers=[],
-                outputs=[args[0]],
+                inputs=inputs,
+                clobbers=clobbers,
+                outputs=outputs,
                 eval_fn=eval_fn,
             )
 
@@ -1343,6 +1345,14 @@ class Sh4Arch(Sh2Arch):
 
     @staticmethod
     def function_return(expr: Expression) -> Dict[Register, Expression]:
-        ret = Sh2Arch.function_return(expr)
-        ret[Register("fr0")] = as_type(expr, Type.f32(), silent=True, unify=False)
-        return ret
+        return {
+            **Sh2Arch.function_return(expr),
+            Register("fr0"): Cast(
+                expr, reinterpret=True, silent=True, type=Type.floatish()
+            ),
+        }
+
+    instrs_load_const: InstrMap = {
+        "fldi0": lambda a: Literal(0x00000000, Type.f32()),
+        "fldi1": lambda a: Literal(0x3F800000, Type.f32()),
+    }
