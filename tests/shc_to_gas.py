@@ -84,10 +84,7 @@ def parse_uint(s: str) -> Optional[int]:
 def convert_line(line: str) -> str:
     line = line.rstrip("\r")
 
-    semi = line.find(";")
-
-    if semi != -1:
-        line = line[:semi] + " !" + line[semi + 1 :]
+    line = line.replace(";", " !", 1)
 
     s = line.strip()
 
