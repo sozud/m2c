@@ -1294,4 +1294,55 @@ class Sh2Arch(Arch):
 
 
 class Sh4Arch(Sh2Arch):
-    pass
+    base_return_regs = [
+        (Register("r0"), False),
+        (Register("fr0"), True),
+    ]
+    all_return_regs = [Register("r0"), Register("r1"), Register("fr0")]
+
+    fp_argument_regs = [Register(f"fr{i}") for i in range(4, 12)]
+    fp_temp_regs = [Register(f"fr{i}") for i in range(12)]
+    fp_saved_regs = [Register(f"fr{i}") for i in range(12, 16)]
+
+    argument_regs = Sh2Arch.argument_regs + fp_argument_regs
+    temp_regs = Sh2Arch.temp_regs + fp_temp_regs + [Register("fpul")]
+    saved_regs = Sh2Arch.saved_regs + fp_saved_regs
+    all_regs = (
+        Sh2Arch.all_regs
+        + fp_temp_regs
+        + fp_saved_regs
+        + [Register("fpul"), Register("fpscr")]
+    )
+
+    @classmethod
+    def parse(
+        cls, mnemonic: str, args: List[Argument], meta: InstructionMeta
+    ) -> Instruction:
+        if mnemonic in ("fldi0", "fldi1"):
+            assert (
+                len(args) == 1
+                and isinstance(args[0], Register)
+                and args[0] in cls.fp_temp_regs + cls.fp_saved_regs
+            )
+            value = 0 if mnemonic == "fldi0" else 0x3F800000
+
+            def eval_fn(s: NodeState, a: InstrArgs) -> None:
+                s.set_reg(a.reg_ref(0), Literal(value, Type.f32()))
+
+            return Instruction(
+                mnemonic=mnemonic,
+                args=args,
+                meta=meta,
+                inputs=[],
+                clobbers=[],
+                outputs=[args[0]],
+                eval_fn=eval_fn,
+            )
+
+        return super().parse(mnemonic, args, meta)
+
+    @staticmethod
+    def function_return(expr: Expression) -> Dict[Register, Expression]:
+        ret = Sh2Arch.function_return(expr)
+        ret[Register("fr0")] = as_type(expr, Type.f32(), silent=True, unify=False)
+        return ret
